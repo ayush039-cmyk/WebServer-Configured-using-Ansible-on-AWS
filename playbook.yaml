@@ -19,7 +19,7 @@
         name: nginx
         state: stopped
         enabled: no
-      ignore_errors: yes # In case nginx isn't installed on all hosts
+      ignore_errors: yes
     - name: install mariadb
       yum:
         name:
@@ -65,7 +65,7 @@
               name: nginx
               state: stopped
               enabled: no
-          ignore_errors: yes # In case nginx isn't installed on all hosts
+          ignore_errors: yes
         - name: install httpd
           yum:
             name: 
