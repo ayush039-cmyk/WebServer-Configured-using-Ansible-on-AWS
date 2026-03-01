@@ -1,179 +1,51 @@
-# Introduction
+# E-Commerce Infrastructure Automation with Ansible
+This repository contains the Ansible configuration used to automate the deployment of a high-performance, secure web and database environment on CentOS. It replaces manual setup with a repeatable "Infrastructure as Code" approach.
 
-This is a sample e-commerce application built for learning purposes.
+## Project Overview
+The goal was to deploy a two-tier application stack:
 
-Here's how to deploy it on CentOS systems:
+Database Tier: A dedicated MariaDB server for data persistence.
 
-## Deploy Pre-Requisites
+Web Tier: An Apache (HTTPD) server with PHP-MySQL integration to serve the web application.
 
-1. Install FirewallD
+# Configuration Details
+## 1. Global Dependencies
+The playbook first ensures all managed nodes have the necessary backend tools for secure operations:
 
-```
-sudo yum install -y firewalld
-sudo systemctl start firewalld
-sudo systemctl enable firewalld
-sudo systemctl status firewalld
-```
+Installed python3-libselinux and python3-libsemanage for SELinux management.
 
-## Deploy and Configure Database
+Enabled firewalld across all systems to manage network security.
 
-1. Install MariaDB
+## 2. Database Server (MariaDB)
+Managed under the centos_db host group:
 
-```
-sudo yum install -y mariadb-server
-sudo vi /etc/my.cnf
-sudo systemctl start mariadb
-sudo systemctl enable mariadb
-```
+Conflict Resolution: Automatically stops and disables Nginx to prevent port overlaps.
 
-2. Configure firewall for Database
+Installation: Installs the MariaDB server stack and PyMySQL for Python integration.
 
-```
-sudo firewall-cmd --permanent --zone=public --add-port=3306/tcp
-sudo firewall-cmd --reload
-```
+Initialization: Deploys a custom my.cnf and imports the database schema via a shell-executed SQL script (db-load-script.sql).
 
-3. Configure Database
+Network: Configures the firewall to allow traffic on port 3306.
 
-```
-$ mysql
-MariaDB > CREATE DATABASE ecomdb;
-MariaDB > CREATE USER 'ecomuser'@'localhost' IDENTIFIED BY 'ecompassword';
-MariaDB > GRANT ALL PRIVILEGES ON *.* TO 'ecomuser'@'localhost';
-MariaDB > FLUSH PRIVILEGES;
-```
+## 3. Web Server (Apache & PHP)
+Managed under the centos-s-1vcpu-1gb-blr1-01 host:
 
-> ON a multi-node setup remember to provide the IP address of the web server here: `'ecomuser'@'web-server-ip'`
+Service Cleanup: Ensures Port 80 is free by stopping Nginx.
 
-4. Load Product Inventory Information to database
+Stack Setup: Installs httpd, php, and php-mysqlnd for database communication.
 
-Create the db-load-script.sql
+App Logic: * Uses replace to modify httpd.conf, setting index.php as the default directory index.
 
-```
-cat > db-load-script.sql <<-EOF
-USE ecomdb;
-CREATE TABLE products (id mediumint(8) unsigned NOT NULL auto_increment,Name varchar(255) default NULL,Price varchar(255) default NULL, ImageUrl varchar(255) default NULL,PRIMARY KEY (id)) AUTO_INCREMENT=1;
+Clones the application source code from a remote Git repository into /var/www/html/.
 
-INSERT INTO products (Name,Price,ImageUrl) VALUES ("Laptop","100","c-1.png"),("Drone","200","c-2.png"),("VR","300","c-3.png"),("Tablet","50","c-5.png"),("Watch","90","c-6.png"),("Phone Covers","20","c-7.png"),("Phone","80","c-8.png"),("Laptop","150","c-4.png");
+Deploys a custom index.php for database connectivity testing.
 
-EOF
-```
+Network: Configures the firewall to allow public HTTP traffic.
 
-Run sql script
+## How to Use
+Prepare Inventory: Add your server details to inventory.txt.
 
-```
+Execute Playbook:
 
-sudo mysql < db-load-script.sql
-```
-
-
-## Deploy and Configure Web
-
-1. Install required packages
-
-```
-sudo yum install -y httpd php php-mysqlnd
-sudo firewall-cmd --permanent --zone=public --add-port=80/tcp
-sudo firewall-cmd --reload
-```
-
-2. Configure httpd
-
-Change `DirectoryIndex index.html` to `DirectoryIndex index.php` to make the php page the default page
-
-```
-sudo sed -i 's/index.html/index.php/g' /etc/httpd/conf/httpd.conf
-```
-
-3. Start httpd
-
-```
-sudo systemctl start httpd
-sudo systemctl enable httpd
-```
-
-4. Download code
-
-```
-sudo yum install -y git
-sudo git clone https://github.com/kodekloudhub/learning-app-ecommerce.git /var/www/html/
-```
-
-<!-- 5. Update index.php
-
-Update [index.php](https://github.com/kodekloudhub/learning-app-ecommerce/blob/13b6e9ddc867eff30368c7e4f013164a85e2dccb/index.php#L107) file to connect to the right database server. In this case `localhost` since the database is on the same server.
-
-```
-sudo sed -i 's/172.20.1.101/localhost/g' /var/www/html/index.php
-
-              <?php
-                        $link = mysqli_connect('172.20.1.101', 'ecomuser', 'ecompassword', 'ecomdb');
-                        if ($link) {
-                        $res = mysqli_query($link, "select * from products;");
-                        while ($row = mysqli_fetch_assoc($res)) { ?>
-```
-
-> ON a multi-node setup remember to provide the IP address of the database server here.
-```
-sudo sed -i 's/172.20.1.101/localhost/g' /var/www/html/index.php
-```
--->
-
-5. Create and Configure the `.env` File
-
-   Create an `.env` file in the root of your project folder.
-
-   ```sh
-   cat > /var/www/html/.env <<-EOF
-   DB_HOST=localhost
-   DB_USER=ecomuser
-   DB_PASSWORD=ecompassword
-   DB_NAME=ecomdb
-   EOF
-
-6. Update `index.php`
-
-   Update the `index.php` file to load the environment variables from the `.env` file and use them to connect to the database.
-
-   ```php
-   <?php
-   // Function to load environment variables from a .env file
-   function loadEnv($path)
-   {
-       if (!file_exists($path)) {
-           return false;
-       }
-
-       $lines = file($path, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES);
-       foreach ($lines as $line) {
-           if (strpos(trim($line), '#') === 0) {
-               continue;
-           }
-
-           list($name, $value) = explode('=', $line, 2);
-           $name = trim($name);
-           $value = trim($value);
-           putenv(sprintf('%s=%s', $name, $value));
-       }
-       return true;
-   }
-
-   // Load environment variables from .env file
-   loadEnv(__DIR__ . '/.env');
-
-   // Retrieve the database connection details from environment variables
-   $dbHost = getenv('DB_HOST');
-   $dbUser = getenv('DB_USER');
-   $dbPassword = getenv('DB_PASSWORD');
-   $dbName = getenv('DB_NAME');
-
-   ?>
-
-   ON a multi-node setup, remember to provide the IP address of the database server in the .env file.
-
-
-7. Test
-
-```
-curl http://localhost
-```
+Bash
+ansible-playbook -i inventory.txt playbook.yaml -e "repository=<your_repo_url>"
